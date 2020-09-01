@@ -1,0 +1,141 @@
+---
+title: "Coursera Captstone Milestone Report"
+author: "Joel Hickman"
+date: "8/25/2020"
+output:
+  html_document: 
+    pandoc_args: ["+RTS","-K64m","-RTS"]    
+  pdf_document: default
+subtitle: "SwiftKey Application Exploratory Analysis"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+knitr::opts_knit$set(root.dir = '~/R/Rcoursera/data')
+```
+
+### Overview and Executive Summary
+
+In this project, I will use the *SwiftKey application data* https://d396qusza40orc.cloudfront.net/dsscapstone/dataset/Coursera-SwiftKey.zip which contains the following text data sources:
+
+  * Blog Data
+  * News Data
+  * Twitter Data
+  
+The main objectives are to import and read in the data, take a sample of each of the data sets and combine them.  Next conduct exploratory analysis and summarize plans for creating a prediction algorithm stored in an R Shiny application that makes it intuitive for a non-data science manager to use.
+
+
+### Exploratory Data Analysis
+
+```{r}
+library("readr")
+library("tm")
+library("qdap")
+library("knitr")
+library("wordcloud")
+library("RColorBrewer")
+library("RWeka")
+library("stringi")
+```
+
+# Read in Data Sources
+
+```{r}
+blog_line <- readLines("en_US.blogs.txt", encoding = "UTF-8", skipNul = TRUE)
+news_line <- readLines("en_US.news.txt", encoding = "UTF-8", skipNul = TRUE)
+twitter_line <- readLines("en_US.twitter.txt", encoding = "UTF-8", skipNul = TRUE)
+```
+
+# Summarizing the Data
+
+```{r}
+data_summary <- data.frame(
+                  "File Name" = c("US.blogs", "US.news", "US.twitter"),
+                  "FileSize (MB)" = c(file.info("en_US.blogs.txt")$size/1024^2,
+                                      file.info("en_US.news.txt")$size/1024^2,
+                                      file.info("en_US.twitter.txt")$size/1024^2),
+                  "Word Count" = c(sum(stri_count_words(blog_line)),
+                                   sum(stri_count_words(news_line)),
+                                   sum(stri_count_words(twitter_line))),
+                  "Line Count" = c(length(blog_line), length(news_line), length(twitter_line)),
+                  "Char Count" = c(stri_stats_general(blog_line)[3],
+                                   stri_stats_general(news_line)[3],
+                                   stri_stats_general(twitter_line)[3])
+                )
+
+kable(data_summary)
+```
+    
+# Data Sampling
+
+In order to make the program more efficient and managable, I sample 1% of each file and then combine them.
+
+```{r}
+set.seed(82726)
+sample_twitter <- sample(twitter_line, length(twitter_line) * 0.01)
+sample_blog    <- sample(blog_line, length(blog_line) * 0.01)
+sample_news    <- sample(news_line, length(news_line) * 0.01)
+
+
+sample_all <- c(sample_blog, sample_news, sample_twitter)
+```
+
+# Clean Data
+
+Here I transform the data into a Corpus for NLP analysis.  Next, I transform the data with a number of commands to clean up the raw data.
+
+```{r}
+corpus <- VCorpus(VectorSource(sample_all))
+
+profanity <- readLines('profanity.txt')
+
+corpus <- tm_map(corpus, content_transformer(tolower))
+corpus <- tm_map(corpus, removePunctuation)
+corpus <- tm_map(corpus, removeNumbers)
+corpus <- tm_map(corpus, stripWhitespace)
+corpus <- tm_map(corpus, removeWords, profanity)
+corpus <- tm_map(corpus, removeWords, stopwords("en"))
+corpus <- tm_map(corpus, PlainTextDocument)
+```
+
+# Save and Look at Sample Data after cleaning
+
+Here I am saving the file, looking at the output, and turning the corpus back to a data frame
+
+```{r}
+saveRDS(corpus, "corpus.rds")
+content(corpus[[1]])
+
+corpus_df <- data.frame(text = unlist(sapply(corpus, `[`, "content")), stringsAsFactors=F)
+```
+
+
+# Tokenizing the Data with n grams
+
+N-gram is a method to look for n number of words/phrases which appear in the data. Create n-grams and return frequencies of word/phrase combinations in decreasing order.
+
+```{r}
+unigramTokenizer <- function(x) {NGramTokenizer(x, Weka_control(min = 1, max = 1))}
+bigramTokenizer <- function(x) {NGramTokenizer(x, Weka_control(min = 2, max = 2))}
+trigramTokenizer <- function(x) {NGramTokenizer(x, Weka_control(min = 3, max = 3))}
+
+tdm_unigram <- unigramTokenizer(corpus_df)
+tdm_bigram  <- bigramTokenizer(corpus_df)
+tdm_trigram <- trigramTokenizer(corpus_df)
+```
+
+A wordcloud is a good visual way to see which words or word phrases show up in the data most frequently.  The larger the word (or word phrase), the more often it appears within the data.  I've created wordclouds for the one word (unigram), two word phrases (bigram), and three word phrases (trigram).
+
+```{r}
+set.seed(1827)
+wordcloud(tdm_unigram, max.words=100, random.order=FALSE, colors=brewer.pal(8, "Dark2"))
+wordcloud(tdm_bigram, max.words=100, random.order=FALSE, colors=brewer.pal(8, "Dark2"))
+wordcloud(tdm_trigram, max.words=100, random.order=FALSE, colors=brewer.pal(8, "Dark2"))
+```
+
+
+### Capstone Project Next Steps
+
+Next, I will build a prediction model by utilizing the unigram, bigram, and trigram token data.  During this process, I'll be looking for various ways to make the code efficient and try to limit programming run time without sacrificing too much accuracy.  Multiple modeling techniques will be considered.
+
+Finally, a shiny application will be developed allowing the user to see predictive words appear as they start typing in text.  This would work in a similar manner to how texting works on a smartphone.
